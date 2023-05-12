@@ -1,38 +1,58 @@
 #!/usr/bin/env python3
-"""Cache module"""
-
+"""
+Redis exercise
+"""
+from typing import Callable
 import redis
-import functools
-
-
-def count_calls(method: callable) -> callable:
-    """Decorator to count the number of calls to a method"""
-    @functools.wraps(method)
-    def wrapped(self, *args, **kwargs):
-        """Wrapped function that increments count and returns result"""
-        key = method.__qualname__
-        self.redis.incr(key)
-        return method(self, *args, **kwargs)
-    return wrapped
 
 
 class Cache:
-    """Cache class that stores data in Redis"""
+    """
+    Cache class
+    """
     def __init__(self):
-        self.redis = redis.Redis(host='localhost', port=6379)
+        """
+        Constructor method
+        """
+        self._redis = redis.Redis()
+        self._redis.flushdb()
 
-    @count_calls
-    def store(self, data: bytes) -> str:
-        """Store the data in the cache and return its key"""
-        key = self.redis.get('cache_key')
-        if key is None:
-            key = 1
-        else:
-            key = int(key) + 1
-        self.redis.set(key, data)
-        self.redis.set('cache_key', key)
-        return str(key)
+    @staticmethod
+    def store(data: str) -> str:
+        """
+        Store data in cache
+        """
+        key = str(uuid.uuid4())
+        Cache._redis.set(key, data)
+        return key
 
-    def get(self, key: str) -> bytes:
-        """Retrieve the data stored in the cache for the given key"""
-        return self.redis.get(key)
+# Implement call_history decorator here
+def call_history(method: Callable) -> Callable:
+    """
+    call_history decorator
+    """
+    def wrapper(*args, **kwargs):
+        """
+        Wrapper function
+        """
+        # Get input and output list keys
+        input_key = f"{method.__qualname__}:inputs"
+        output_key = f"{method.__qualname__}:outputs"
+
+        # Append input arguments to input list
+        Cache._redis.rpush(input_key, str(args))
+
+        # Execute wrapped function to get output
+        output = method(*args, **kwargs)
+
+        # Append output to output list
+        Cache._redis.rpush(output_key, str(output))
+
+        # Return output
+        return output
+
+    # Return wrapper function
+    return wrapper
+
+# Decorate Cache.store with call_history
+Cache.store = call_history(Cache.store)
