@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
 """
-Redis exercise
+Main file
 """
-from typing import Callable
 import redis
+from uuid import uuid4
+from typing import Union, Callable
+
+
+def call_history(method: Callable) -> Callable:
+    """
+    Store history of input and output for function
+    """
+    def wrapper(*args, **kwargs):
+        """
+        Wrapper function
+        """
+        key = method.__qualname__
+        input_key = key + ":inputs"
+        output_key = key + ":outputs"
+
+        r = redis.Redis()
+        r.rpush(input_key, str(args))
+        result = method(*args, **kwargs)
+        r.rpush(output_key, str(result))
+
+        return result
+
+    return wrapper
 
 
 class Cache:
@@ -17,42 +40,39 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
-    @staticmethod
-    def store(data: str) -> str:
+    @call_history
+    def store(self, data: Union[str, bytes, int, float]) -> str:
         """
-        Store data in cache
+        Store method
         """
-        key = str(uuid.uuid4())
-        Cache._redis.set(key, data)
+        key = str(uuid4())
+        self._redis.set(key, data)
         return key
 
-# Implement call_history decorator here
-def call_history(method: Callable) -> Callable:
-    """
-    call_history decorator
-    """
-    def wrapper(*args, **kwargs):
+    def get(self, key: str, fn=None) -> Union[str, bytes, int, float, None]:
         """
-        Wrapper function
+        Get method
         """
-        # Get input and output list keys
-        input_key = f"{method.__qualname__}:inputs"
-        output_key = f"{method.__qualname__}:outputs"
+        data = self._redis.get(key)
+        if fn is not None and data is not None:
+            data = fn(data)
+        return data
 
-        # Append input arguments to input list
-        Cache._redis.rpush(input_key, str(args))
+    def get_str(self, key: str) -> str:
+        """
+        Get string method
+        """
+        return self.get(key, lambda x: x.decode('utf-8'))
 
-        # Execute wrapped function to get output
-        output = method(*args, **kwargs)
+    def get_int(self, key: str) -> int:
+        """
+        Get int method
+        """
+        return self.get(key, lambda x: int(x))
 
-        # Append output to output list
-        Cache._redis.rpush(output_key, str(output))
-
-        # Return output
-        return output
-
-    # Return wrapper function
-    return wrapper
-
-# Decorate Cache.store with call_history
-Cache.store = call_history(Cache.store)
+    def get_str_list(self, key: str) -> list:
+        """
+        Get string list method
+        """
+        data = self._redis.lrange(key, 0, -1)
+        return [item.decode('utf-8') for item in data]
